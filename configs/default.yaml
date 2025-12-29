@@ -1,0 +1,105 @@
+project:
+  name: "soccer_match_cv"
+  version: "0.1.5"
+
+video:
+  analysis_fps: 12
+  analysis_scale: 1.0
+  render_fps: null
+
+masking:
+  use_black_border_mask: true
+  black_v_thresh: 35
+  black_morph_kernel: 19
+
+  use_green_field_mask: true
+  # Tuned for your clip (high saturation grass, exclude sky)
+  green_h_min: 25
+  green_h_max: 70
+  green_s_min: 80
+  green_v_min: 40
+  green_morph_kernel: 11
+
+  # Keep only the connected component that contains a seed point
+  # (helps ignore trees/parking lot that sometimes pass the "green" test)
+  keep_seed_component: true
+  seed_x_frac: 0.50
+  seed_y_frac: 0.82
+
+detector:
+  # Larger model helps on wide-angle, small targets
+  model_path: "yolov8m.pt"
+  # Optional: separate fine-tuned ball model (keeps person model unchanged)
+  ball_model_path: "runs/detect/train2/weights/best.pt"
+  player_class_name: person
+  ball_class_name: "ball"
+  device: "auto"
+  half: false
+  verbose: false
+
+  conf_players: 0.18
+  iou_players: 0.55
+  imgsz_players: 1536
+
+  # Ball is tiny: use bigger imgsz + lower conf
+  conf_ball: 0.06
+  iou_ball: 0.30
+  imgsz_ball: 1536
+
+tracking:
+  track_thresh: 0.18
+  track_buffer: 90
+  match_thresh: 0.8
+  frame_rate: 30
+
+team_assignment:
+  enabled: true
+  sample_top_fraction: 0.20
+  sample_mid_fraction: 0.55
+  exclude_green: true
+  green_exclude_h_min: 25
+  green_exclude_h_max: 70
+  green_exclude_s_min: 80
+  green_exclude_v_min: 40
+  min_samples_to_fit: 80
+  refit_every_n_frames: 120
+  random_state: 13
+
+ball_fallback:
+  enabled: true
+
+  # Motion fallback is now scaled for speed.
+  # IMPORTANT: area/dist params below are in SCALED pixel units.
+  scale: 0.50
+
+  diff_thresh: 12
+  min_area: 2
+  max_area: 80
+  circularity_min: 0.28
+  max_candidates: 25
+  near_last_ball_px: 80
+
+
+heuristics:
+  filter_players_by_field_mask: true
+  player_foot_point_offset_px: 0
+  player_min_area_frac: 0.00005
+  player_max_area_frac: 0.04000
+  player_min_aspect: 0.18
+  player_max_aspect: 1.25
+  gate_ball_by_near_player: true
+  ball_near_player_px: 180.0
+
+possession:
+  max_ball_to_player_px: 115
+  min_frames_to_confirm: 3
+  hold_last_seconds_if_ball_missing: 1.2
+
+render:
+  enabled: true
+  draw_field_mask_outline: false
+  show_debug_text: false
+  draw_player_boxes: true
+  draw_ball: true
+  draw_tracks: false
+  trail_seconds: 1.5

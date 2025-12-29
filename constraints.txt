@@ -1,0 +1,2 @@
+# Hard constraint to prevent pip from upgrading to NumPy 2.x which can break torch wheels
+numpy<2

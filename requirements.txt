@@ -1,0 +1,14 @@
+# Pinned for NumPy<2 compatibility with many compiled ML wheels (PyTorch/Ultralytics).
+numpy>=1.24,<2
+
+opencv-python>=4.8.0
+pydantic>=2.5
+pyyaml>=6.0
+tqdm>=4.66
+typer>=0.12
+rich>=13.7
+
+# ML / CV
+scikit-learn>=1.3
+supervision>=0.22.0
+ultralytics>=8.2.0
