@@ -103,3 +103,11 @@ render:
   draw_ball: true
   draw_tracks: false
   trail_seconds: 1.5
+
+field:
+  enabled: false
+  pitch_length_m: 105.0
+  pitch_width_m: 68.0
+  ransac_reproj_threshold: 4.0
+  image_points: []
+  field_points: []

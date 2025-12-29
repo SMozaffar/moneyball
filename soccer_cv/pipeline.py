@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Dict, Any
 from pathlib import Path
-import time
 import cv2
 import numpy as np
 from tqdm import tqdm
@@ -11,8 +10,14 @@ from tqdm import tqdm
 from soccer_cv.config import AppConfig, dump_config
 from soccer_cv.logging_utils import get_logger
 from soccer_cv.types import Detection, Track, Ball, FrameResult
-from soccer_cv.utils.video_io import get_video_info, iter_frames, resize_keep_aspect, make_writer
-from soccer_cv.utils.masking import black_border_mask, green_field_mask, combine_masks, apply_mask, keep_component_with_seed
+from soccer_cv.utils.video_io import get_video_info, iter_frames, resize_keep_aspect
+from soccer_cv.utils.masking import (
+    black_border_mask,
+    green_field_mask,
+    combine_masks,
+    apply_mask,
+    keep_component_with_seed,
+)
 from soccer_cv.detectors.yolo import YoloDetector
 from soccer_cv.trackers.bytetrack import ByteTrackTracker
 from soccer_cv.metrics.team_assignment import OnlineTeamAssigner
@@ -21,16 +26,22 @@ from soccer_cv.metrics.possession import PossessionEstimator
 from soccer_cv.metrics.possession_stats import PossessionStats
 from soccer_cv.metrics.base import MetricRegistry
 
+# NEW: homography
+from soccer_cv.field.homography import PitchHomography, PitchSpec
+
 logger = get_logger()
+
 
 @dataclass
 class PipelineArtifacts:
     field_mask: Optional[np.ndarray] = None
     sample_frame: Optional[np.ndarray] = None
 
+
 class SoccerCVPipeline:
     def __init__(self, cfg: AppConfig):
         self.cfg = cfg
+
         self.detector = YoloDetector(
             model_path=cfg.detector.model_path,
             device=cfg.detector.device,
@@ -44,12 +55,14 @@ class SoccerCVPipeline:
             half=cfg.detector.half,
             verbose=cfg.detector.verbose,
         )
+
         self.tracker = ByteTrackTracker(
             track_thresh=cfg.tracking.track_thresh,
             track_buffer=cfg.tracking.track_buffer,
             match_thresh=cfg.tracking.match_thresh,
             frame_rate=cfg.tracking.frame_rate,
         )
+
         self.team_assigner = OnlineTeamAssigner(
             enabled=cfg.team_assignment.enabled,
             sample_top_fraction=cfg.team_assignment.sample_top_fraction,
@@ -63,6 +76,7 @@ class SoccerCVPipeline:
             refit_every_n_frames=cfg.team_assignment.refit_every_n_frames,
             random_state=cfg.team_assignment.random_state,
         )
+
         self.ball_fallback = MotionBallFallback(
             enabled=cfg.ball_fallback.enabled,
             scale=cfg.ball_fallback.scale,
@@ -73,6 +87,7 @@ class SoccerCVPipeline:
             max_candidates=cfg.ball_fallback.max_candidates,
             near_last_ball_px=cfg.ball_fallback.near_last_ball_px,
         )
+
         self.possession = PossessionEstimator(
             max_ball_to_player_px=cfg.possession.max_ball_to_player_px,
             min_frames_to_confirm=cfg.possession.min_frames_to_confirm,
@@ -80,24 +95,69 @@ class SoccerCVPipeline:
             analysis_fps=float(cfg.video.analysis_fps),
         )
 
-    
+        # NEW: Optional pitch homography mapper
+        self.pitch_mapper: Optional[PitchHomography] = None
+        try:
+            field_cfg = getattr(cfg, "field", None)
+            if field_cfg is not None and getattr(field_cfg, "enabled", False):
+                is_valid = True
+                if hasattr(field_cfg, "is_valid"):
+                    is_valid = bool(field_cfg.is_valid())
+                else:
+                    # fallback validity check if you didn’t add is_valid()
+                    ip = getattr(field_cfg, "image_points", [])
+                    fp = getattr(field_cfg, "field_points", [])
+                    is_valid = (len(ip) >= 4) and (len(ip) == len(fp))
+
+                if not is_valid:
+                    logger.warning(
+                        "Field homography enabled but config is invalid. "
+                        "Need >=4 points and equal-length image_points/field_points."
+                    )
+                else:
+                    self.pitch_mapper = PitchHomography(
+                        pitch=PitchSpec(
+                            pitch_length_m=float(getattr(field_cfg, "pitch_length_m", 105.0)),
+                            pitch_width_m=float(getattr(field_cfg, "pitch_width_m", 68.0)),
+                        ),
+                        image_points=list(getattr(field_cfg, "image_points")),
+                        field_points=list(getattr(field_cfg, "field_points")),
+                        ransac_reproj_threshold=float(getattr(field_cfg, "ransac_reproj_threshold", 4.0)),
+                    )
+                    logger.info(
+                        "Field homography ENABLED (pixel->meters). "
+                        "Pitch: %.1fm x %.1fm, points=%d",
+                        float(getattr(field_cfg, "pitch_length_m", 105.0)),
+                        float(getattr(field_cfg, "pitch_width_m", 68.0)),
+                        len(getattr(field_cfg, "image_points", [])),
+                    )
+            else:
+                logger.info("Field homography disabled (cfg.field.enabled=false).")
+        except Exception as e:
+            logger.exception("Failed to initialize pitch homography; continuing without it. Error: %s", e)
+            self.pitch_mapper = None
+
     def _build_field_mask(self, frame_bgr: np.ndarray) -> Optional[np.ndarray]:
         masks = []
         if self.cfg.masking.use_black_border_mask:
-            masks.append(black_border_mask(
-                frame_bgr,
-                v_thresh=self.cfg.masking.black_v_thresh,
-                morph_kernel=self.cfg.masking.black_morph_kernel
-            ))
+            masks.append(
+                black_border_mask(
+                    frame_bgr,
+                    v_thresh=self.cfg.masking.black_v_thresh,
+                    morph_kernel=self.cfg.masking.black_morph_kernel,
+                )
+            )
         if self.cfg.masking.use_green_field_mask:
-            masks.append(green_field_mask(
-                frame_bgr,
-                h_min=self.cfg.masking.green_h_min,
-                h_max=self.cfg.masking.green_h_max,
-                s_min=self.cfg.masking.green_s_min,
-                v_min=self.cfg.masking.green_v_min,
-                morph_kernel=self.cfg.masking.green_morph_kernel
-            ))
+            masks.append(
+                green_field_mask(
+                    frame_bgr,
+                    h_min=self.cfg.masking.green_h_min,
+                    h_max=self.cfg.masking.green_h_max,
+                    s_min=self.cfg.masking.green_s_min,
+                    v_min=self.cfg.masking.green_v_min,
+                    morph_kernel=self.cfg.masking.green_morph_kernel,
+                )
+            )
         if not masks:
             return None
 
@@ -116,6 +176,47 @@ class SoccerCVPipeline:
         x = int(round(0.5 * (x1 + x2)))
         y = int(round(y2)) - int(y_offset)
         return x, y
+
+    def _attach_field_coords_to_track(self, t: Track) -> None:
+        """
+        Adds:
+          - t.foot_px = (x_px, y_px)
+          - t.foot_field_m = (x_m, y_m)  (if homography enabled)
+        Does not require modifying Track dataclass; attaches attributes dynamically.
+        """
+        fx, fy = self._foot_point(t.xyxy, y_offset=int(self.cfg.heuristics.player_foot_point_offset_px))
+        foot_px = (float(fx), float(fy))
+
+        # Always attach pixel foot point (useful for debugging even without homography)
+        try:
+            setattr(t, "foot_px", foot_px)
+        except Exception:
+            pass
+
+        if self.pitch_mapper is None:
+            return
+
+        try:
+            foot_m = self.pitch_mapper.pixel_to_field(foot_px)
+            foot_m = self.pitch_mapper.clip_to_pitch(foot_m)
+            setattr(t, "foot_field_m", foot_m)
+        except Exception:
+            # Don’t break analysis if a point goes out of bounds or homography is imperfect
+            pass
+
+    def _attach_field_coords_to_ball(self, ball: Ball) -> None:
+        """
+        Adds:
+          - ball.field_m = (x_m, y_m) (if homography enabled)
+        """
+        if self.pitch_mapper is None:
+            return
+        try:
+            m = self.pitch_mapper.pixel_to_field((float(ball.x), float(ball.y)))
+            m = self.pitch_mapper.clip_to_pitch(m)
+            setattr(ball, "field_m", m)
+        except Exception:
+            pass
 
     def _filter_player_detections(
         self,
@@ -191,6 +292,7 @@ class SoccerCVPipeline:
 
         metrics = MetricRegistry(metrics=[PossessionStats(dt_sec=dt_sec)])
 
+        # Peek first frame for masks/debug + ensure video readable
         first_frame_bgr = None
         for idx, frame_bgr in iter_frames(video_path, step=step):
             first_frame_bgr = frame_bgr
@@ -238,6 +340,10 @@ class SoccerCVPipeline:
             # team assignment (updates track.team_id in-place)
             self.team_assigner.update(frame_bgr, tracks)
 
+            # NEW: attach per-track foot_px and foot_field_m (if homography enabled)
+            for t in tracks:
+                self._attach_field_coords_to_track(t)
+
             # detect ball via YOLO
             ball_dets = self.ball_detector.detect(
                 masked,
@@ -247,10 +353,9 @@ class SoccerCVPipeline:
                 classes=[self.cfg.detector.ball_class_name],
             )
 
-            
             ball: Optional[Ball] = None
 
-            # 1) Try YOLO sports-ball
+            # 1) Try YOLO sports-ball (or custom "ball" class if you trained)
             yolo_ball: Optional[Ball] = None
             if ball_dets:
                 best = max(ball_dets, key=lambda d: d.conf)
@@ -275,6 +380,10 @@ class SoccerCVPipeline:
                     if dmin is not None and dmin > float(self.cfg.heuristics.ball_near_player_px):
                         ball = None
 
+            # NEW: attach ball field coords if we have a ball + homography
+            if ball is not None:
+                self._attach_field_coords_to_ball(ball)
+
             # possession
             team_id, player_id = self.possession.update(ball, tracks)
 
@@ -287,6 +396,7 @@ class SoccerCVPipeline:
                 possession_team=int(team_id),
                 possession_player=int(player_id),
             )
+
             metrics.on_frame(fr)
             frames.append(fr)
             pbar.update(1)
@@ -303,5 +413,8 @@ class SoccerCVPipeline:
             "config": dump_config(self.cfg),
         }
         meta["metrics"] = metrics.finalize()
+
+        # Helpful flag for downstream code / debugging
+        meta["field_homography_enabled"] = bool(self.pitch_mapper is not None)
 
         return frames, meta, artifacts

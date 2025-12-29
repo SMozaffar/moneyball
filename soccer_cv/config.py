@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Tuple, List
 import yaml
 from pathlib import Path
+
+Point2 = Tuple[float, float]
 
 class _Cfg(BaseModel):
     # Avoid warnings for fields like "model_path" in DetectorConfig
@@ -12,6 +14,25 @@ class _Cfg(BaseModel):
 class ProjectConfig(_Cfg):
     name: str = "soccer_match_cv"
     version: str = "0.1.5"
+
+class FieldConfig(BaseModel):
+    enabled: bool = False
+
+    pitch_length_m: float = 105.0
+    pitch_width_m: float = 68.0
+
+    # Must be same length; >= 4 points.
+    image_points: List[Point2] = Field(default_factory=list)
+    field_points: List[Point2] = Field(default_factory=list)
+
+    ransac_reproj_threshold: float = 4.0
+
+    def is_valid(self) -> bool:
+        return (
+            self.enabled
+            and len(self.image_points) >= 4
+            and len(self.image_points) == len(self.field_points)
+        )
 
 class VideoConfig(_Cfg):
     analysis_fps: int = 8
@@ -130,6 +151,8 @@ class AppConfig(_Cfg):
     heuristics: HeuristicsConfig = Field(default_factory=HeuristicsConfig)
     possession: PossessionConfig = Field(default_factory=PossessionConfig)
     render: RenderConfig = Field(default_factory=RenderConfig)
+    field: FieldConfig = Field(default_factory=FieldConfig)
+
 
 def load_config(path: str | Path) -> AppConfig:
     path = Path(path)
