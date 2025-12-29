@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soccer-match-cv"
+version = "0.1.5"
+description = "Computer-vision pipeline for stitched GoPro soccer match video: detection, tracking, team clustering, and possession metrics."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name="You"}]
+dependencies = []
+
+[project.scripts]
+soccer-cv = "soccer_cv.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["soccer_cv*"]
