@@ -8,6 +8,8 @@ This project analyzes stitched multi-GoPro panoramas and produces:
 - **Team assignment** (unsupervised jersey-color clustering)
 - **Possession timeline** (heuristic “closest player to ball” with hysteresis)
 - **Rendered output video** with overlays (boxes, ball marker, optional text/trails)
+- **Field heatmaps + team shape summaries** (when homography is configured)
+- **Mini-map overlay video** rendered from field coordinates
 - **Exported ball crops** for fast labeling + fine-tuning on your own footage
 
 The project is designed to start simple (no labeled data required) while staying **adaptable**: you can add new metrics and custom detectors (especially for the ball, and optionally for players) as you iterate.
@@ -365,6 +367,34 @@ All runtime behavior is controlled by `configs/default.yaml`. Key sections:
 - `draw_tracks`: if false, no trails
 - `draw_player_boxes`: if true, boxes drawn
 - `draw_ball`: draw ball marker
+
+## Field Homography Setup (heatmaps + mini-map)
+
+Homography maps pixel locations to real pitch meters, unlocking the field heatmaps, team shape stats, and the mini-map video. You only need to do this once per camera angle.
+
+1) Pick a clear frame with visible lines: midway through play is best. Note the 0-based frame index (e.g., from `ffprobe` or just estimate by time × fps).
+2) Run the point-picker (opens an OpenCV window and prompts in the terminal):
+   ```bash
+   python scripts/pick_calibration_points.py \
+     --video /path/to/match.mp4 \
+     --frame-index 1500 \
+     --out-yaml /tmp/field_points.yaml
+   ```
+   - Click a field landmark (corner, center circle edge, penalty spot, intersection of touchline/penalty area).
+   - After each click, enter its field coordinates in meters as `x y` where:
+     - `x`: left → right across pitch width (0 .. pitch_width_m)
+     - `y`: top → bottom along pitch length (0 .. pitch_length_m)
+     - Keep “top/bottom” consistent with how the pitch appears in your frame.
+   - Grab at least 4 non-collinear points; 6–10 spread across the field is better. Press `q` when done.
+3) The script prints a YAML snippet (also saved if `--out-yaml` is set). Paste it under `field:` in `configs/default.yaml` to enable homography.
+4) Run analysis as usual:
+   ```bash
+   soccer-cv analyze \
+     --video /path/to/match.mp4 \
+     --out-dir output/run1 \
+     --config configs/default.yaml
+   ```
+   Outputs now include `heatmaps/*.png`, `metrics.FieldMetrics` in `analysis.json`, and `minimap.mp4` (if `mini_map.enabled=true`).
 
 > Note: If you edited your CLI/render call previously, ensure ball drawing is controlled by config:
 > `draw_ball=cfg.render.draw_ball` (not hard-coded `False`), otherwise the ball may be present in analysis but not drawn.

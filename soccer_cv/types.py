@@ -22,6 +22,8 @@ class Track:
     conf: float
     cls: str = "player"
     team_id: Optional[int] = None
+    foot_px: Optional[Tuple[float, float]] = None
+    foot_field_m: Optional[Tuple[float, float]] = None
 
     @property
     def center(self) -> Tuple[float, float]:
@@ -39,6 +41,7 @@ class Ball:
     y: float
     conf: float
     source: str  # "yolo" or "motion"
+    field_m: Optional[Tuple[float, float]] = None
 
 @dataclass
 class FrameResult:

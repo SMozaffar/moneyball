@@ -10,6 +10,7 @@ from soccer_cv.logging_utils import get_logger
 from soccer_cv.pipeline import SoccerCVPipeline
 from soccer_cv.utils.outputs import save_analysis, save_possession_timeline_csv, save_json, load_analysis
 from soccer_cv.render import render_annotated_video
+from soccer_cv.viz.minimap import render_minimap_video
 
 logger = get_logger()
 app = typer.Typer(add_completion=False, help="Soccer Match CV: detection, tracking, team clustering, and possession metrics.")
@@ -50,23 +51,41 @@ def analyze(
 
     # optional render
     if not no_render:
-        out_video = out_dir_p / "annotated.mp4"
-        # Render at original FPS (or override with cfg.video.render_fps)
-        fps = cfg.video.render_fps
         analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
-        render_annotated_video(
-            video_path=video,
-            analysis=analysis,
-            out_video=str(out_video),
-            fps=fps,
-            full_speed=True,                      # normal playback duration
-            show_text=cfg.render.show_debug_text, # no words/numbers when False
-            draw_trails=cfg.render.draw_tracks,   # treat draw_tracks as "trails"
-            trail_seconds=cfg.render.trail_seconds,
-            draw_boxes=cfg.render.draw_player_boxes,
-            draw_feet_points=False,              # boxes only
-            draw_ball=cfg.render.draw_ball,                     # boxes only (set True if you still want the ball dot)
-        )
+        if cfg.render.enabled:
+            out_video = out_dir_p / "annotated.mp4"
+            # Render at original FPS (or override with cfg.video.render_fps)
+            fps = cfg.video.render_fps
+            render_annotated_video(
+                video_path=video,
+                analysis=analysis,
+                out_video=str(out_video),
+                fps=fps,
+                full_speed=True,                      # normal playback duration
+                show_text=cfg.render.show_debug_text, # no words/numbers when False
+                draw_trails=cfg.render.draw_tracks,   # treat draw_tracks as "trails"
+                trail_seconds=cfg.render.trail_seconds,
+                draw_boxes=cfg.render.draw_player_boxes,
+                draw_feet_points=False,              # boxes only
+                draw_ball=cfg.render.draw_ball,                     # boxes only (set True if you still want the ball dot)
+            )
+
+        if cfg.mini_map.enabled:
+            try:
+                render_minimap_video(
+                    video_path=video,
+                    analysis=analysis,
+                    out_video=str(out_dir_p / "minimap.mp4"),
+                    width_px=cfg.mini_map.width_px,
+                    height_px=cfg.mini_map.height_px,
+                    fps=cfg.mini_map.fps,
+                    full_speed=cfg.mini_map.full_speed,
+                    draw_trails=cfg.mini_map.draw_trails,
+                    trail_seconds=cfg.mini_map.trail_seconds,
+                    show_possession=cfg.mini_map.show_possession,
+                )
+            except Exception as e:
+                logger.exception("Mini-map render failed: %s", e)
     logger.info("Done.")
 
 @app.command()
@@ -263,4 +282,3 @@ def export_ball_crops(
     logger.info(f"Exported {saved} crops to: {out_p}")
     logger.info(f"Images: {img_p}")
     logger.info(f"Manifest: {manifest_path}")
-

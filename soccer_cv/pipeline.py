@@ -25,6 +25,7 @@ from soccer_cv.metrics.ball_fallback import MotionBallFallback
 from soccer_cv.metrics.possession import PossessionEstimator
 from soccer_cv.metrics.possession_stats import PossessionStats
 from soccer_cv.metrics.base import MetricRegistry
+from soccer_cv.metrics.field_metrics import FieldMetrics
 
 # NEW: homography
 from soccer_cv.field.homography import PitchHomography, PitchSpec
@@ -189,7 +190,7 @@ class SoccerCVPipeline:
 
         # Always attach pixel foot point (useful for debugging even without homography)
         try:
-            setattr(t, "foot_px", foot_px)
+            t.foot_px = foot_px  # type: ignore[attr-defined]
         except Exception:
             pass
 
@@ -199,7 +200,7 @@ class SoccerCVPipeline:
         try:
             foot_m = self.pitch_mapper.pixel_to_field(foot_px)
             foot_m = self.pitch_mapper.clip_to_pitch(foot_m)
-            setattr(t, "foot_field_m", foot_m)
+            t.foot_field_m = foot_m  # type: ignore[attr-defined]
         except Exception:
             # Don’t break analysis if a point goes out of bounds or homography is imperfect
             pass
@@ -214,7 +215,7 @@ class SoccerCVPipeline:
         try:
             m = self.pitch_mapper.pixel_to_field((float(ball.x), float(ball.y)))
             m = self.pitch_mapper.clip_to_pitch(m)
-            setattr(ball, "field_m", m)
+            ball.field_m = m  # type: ignore[attr-defined]
         except Exception:
             pass
 
@@ -290,7 +291,27 @@ class SoccerCVPipeline:
         self.ball_fallback.reset()
         self.possession.reset()
 
-        metrics = MetricRegistry(metrics=[PossessionStats(dt_sec=dt_sec)])
+        metrics_list = [PossessionStats(dt_sec=dt_sec)]
+
+        fm_cfg = getattr(self.cfg, "field_metrics", None)
+        if fm_cfg is not None and bool(getattr(fm_cfg, "enabled", False)):
+            if self.pitch_mapper is None:
+                logger.warning("Field metrics enabled but field homography is disabled. Skipping field heatmaps/shape metrics.")
+            else:
+                metrics_list.append(
+                    FieldMetrics(
+                        pitch_length_m=float(getattr(self.cfg.field, "pitch_length_m", 105.0)),
+                        pitch_width_m=float(getattr(self.cfg.field, "pitch_width_m", 68.0)),
+                        bin_size_m=float(getattr(fm_cfg, "bin_size_m", 2.0)),
+                        min_players_for_shape=int(getattr(fm_cfg, "min_players_for_shape", 3)),
+                        save_heatmap_images=bool(getattr(fm_cfg, "save_heatmap_images", True)),
+                        heatmap_upsample=int(getattr(fm_cfg, "heatmap_upsample", 8)),
+                        gaussian_kernel=int(getattr(fm_cfg, "gaussian_kernel", 11)),
+                        out_dir=out_dir_p,
+                    )
+                )
+
+        metrics = MetricRegistry(metrics=metrics_list)
 
         # Peek first frame for masks/debug + ensure video readable
         first_frame_bgr = None
@@ -407,6 +428,7 @@ class SoccerCVPipeline:
             "video_path": video_path,
             "video_fps": info.fps,
             "video_size": [info.width, info.height],
+            "video_frame_count": info.frame_count,
             "analysis_step": step,
             "analysis_fps": info.fps / step,
             "dt_sec": dt_sec,

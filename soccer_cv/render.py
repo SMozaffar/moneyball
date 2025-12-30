@@ -22,6 +22,8 @@ def _tracks_from_frame_dict(fd: Dict[str, Any]) -> List[Track]:
             conf=float(tr.get("conf", 1.0)),
             cls=str(tr.get("cls", "player")),
             team_id=None if tr.get("team_id") is None else int(tr["team_id"]),
+            foot_px=None if tr.get("foot_px") is None else tuple(map(float, tr["foot_px"])),
+            foot_field_m=None if tr.get("foot_field_m") is None else tuple(map(float, tr["foot_field_m"])),
         ))
     return out
 
@@ -29,7 +31,13 @@ def _ball_from_frame_dict(fd: Dict[str, Any]) -> Optional[Ball]:
     b = fd.get("ball")
     if b is None:
         return None
-    return Ball(x=float(b["x"]), y=float(b["y"]), conf=float(b.get("conf", 1.0)), source=str(b.get("source", "yolo")))
+    return Ball(
+        x=float(b["x"]),
+        y=float(b["y"]),
+        conf=float(b.get("conf", 1.0)),
+        source=str(b.get("source", "yolo")),
+        field_m=None if b.get("field_m") is None else tuple(map(float, b["field_m"])),
+    )
 
 def render_annotated_video(
     video_path: str,
@@ -130,4 +138,3 @@ def render_annotated_video(
 
     writer.release()
     logger.info(f"Wrote annotated video: {out_video}")
-

@@ -140,6 +140,24 @@ class RenderConfig(_Cfg):
     draw_tracks: bool = True
     trail_seconds: float = 1.5
 
+class FieldMetricsConfig(_Cfg):
+    enabled: bool = True
+    bin_size_m: float = 2.0
+    min_players_for_shape: int = 3
+    save_heatmap_images: bool = True
+    heatmap_upsample: int = 8  # scale factor for saved PNGs
+    gaussian_kernel: int = 11  # odd kernel size for smoothing saved heatmaps
+
+class MiniMapConfig(_Cfg):
+    enabled: bool = True
+    width_px: int = 640
+    height_px: Optional[int] = None  # auto-compute from pitch ratio when None
+    fps: Optional[float] = None  # default: original video FPS
+    full_speed: bool = True
+    draw_trails: bool = True
+    trail_seconds: float = 3.0
+    show_possession: bool = True
+
 class AppConfig(_Cfg):
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     video: VideoConfig = Field(default_factory=VideoConfig)
@@ -152,6 +170,8 @@ class AppConfig(_Cfg):
     possession: PossessionConfig = Field(default_factory=PossessionConfig)
     render: RenderConfig = Field(default_factory=RenderConfig)
     field: FieldConfig = Field(default_factory=FieldConfig)
+    field_metrics: FieldMetricsConfig = Field(default_factory=FieldMetricsConfig)
+    mini_map: MiniMapConfig = Field(default_factory=MiniMapConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:

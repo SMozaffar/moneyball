@@ -18,10 +18,20 @@ def frame_result_to_dict(fr: FrameResult) -> Dict[str, Any]:
                 "conf": tr.conf,
                 "cls": tr.cls,
                 "team_id": tr.team_id,
+                "foot_px": None if tr.foot_px is None else list(tr.foot_px),
+                "foot_field_m": None if tr.foot_field_m is None else list(tr.foot_field_m),
             }
             for tr in fr.tracks
         ],
-        "ball": None if fr.ball is None else {"x": fr.ball.x, "y": fr.ball.y, "conf": fr.ball.conf, "source": fr.ball.source},
+        "ball": None
+        if fr.ball is None
+        else {
+            "x": fr.ball.x,
+            "y": fr.ball.y,
+            "conf": fr.ball.conf,
+            "source": fr.ball.source,
+            "field_m": None if fr.ball.field_m is None else list(fr.ball.field_m),
+        },
         "possession_team": fr.possession_team,
         "possession_player": fr.possession_player,
     }
